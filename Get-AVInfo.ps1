@@ -5,7 +5,7 @@ function Get-AVInfo {
     .DESCRIPTION
     This script first queries the machine for a bunch of different AVs, from a predefined list, by searching installed services. It then uses CIM (or WMI) to retrieve any AVs registered with Windows. The script then retrieves more detailed information about the specific AV you specify (Vipre, Bitdefender, or Windows Defender); if nothing is specified, the default is Vipre, unless the 'DefaultOverride' parameter is used. Finally, the script retrieves basic information about the hardware and operating system, often helpful when troubleshooting things like out-of-date definitions.
     The script can do other things as well, like update definitions for the different antiviruses, as well as other useful checks and actions. For more information about what the script can do, read the README.md file in GitHub (link below), and check out the PowerShell help on the parameters, provided with this script. There are also tests and checks that happen in the background that are not listed here or in the parameter help (but are in the GitHub README.md file), and that only show up in the script results if found to be true. For more on that, you'll have to read through the actual script :)
-    GitHub link: https://github.com/IntelliScripts/Get-AVInfo
+    GitHub link: https://github.com/estengel-ict/Get-AVInfo
     .PARAMETER Bitdefender
     Returns detailed information about Bitdefender installed on the system. Cannot be used with Vipre and Windows Defender parameters.
     .PARAMETER UpdateBDDefs
@@ -109,19 +109,17 @@ function Get-AVInfo {
     .NOTES
     This script can be run on a machine in Automate, backstage, or in a Ninja PowerShell session. Simply paste the contents of this function into the shell and press enter, to load the script into memory. Then, just run 'Get-AVInfo', along with whatever parameters, if any, you want to add.
     You can also run the code below to download and load the script into memory:
-    "wget -uri 'https://raw.githubusercontent.com/IntelliScripts/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing | iex"
+    "wget -uri 'https://raw.githubusercontent.com/estengel-ict/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing | iex"
     The above command with an added check for the download containing the expected text (to account for cases where the download is blocked by filters such as DNSFilter) before attempting to load the function in the shell:
-    "$c = wget -uri 'https://raw.githubusercontent.com/IntelliScripts/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing; if ($c.Content -match 'function Get-AVInfo') { $c | iex } else { 'Failed to retrieve script' }"
+    "$c = wget -uri 'https://raw.githubusercontent.com/estengel-ict/Get-AVInfo/master/Get-AVInfo.ps1' -UseBasicParsing; if ($c.Content -match 'function Get-AVInfo') { $c | iex } else { 'Failed to retrieve script' }"
     # For machines that do not support wget (e.g., older PowerShell versions), use:
-    "(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/IntelliScripts/Get-AVInfo/master/Get-AVInfo.ps1') | iex"
+    "(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/estengel-ict/Get-AVInfo/master/Get-AVInfo.ps1') | iex"
     If you get an error "The request was aborted: Could not create SSL/TLS secure channel.", run this command first: 
     "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12"
     .LINK
-    https://github.com/IntelliScripts/Get-AVInfo
+    https://github.com/estengel-ict/Get-AVInfo
     =================================
-    Author: THH
-    Email: estengel@intellicomp.net
-    Comments and suggestions welcome!
+    -THH
     =================================
     #>
     [CmdletBinding(#SupportsShouldProcess = $True,
@@ -276,6 +274,10 @@ function Get-AVInfo {
         [Parameter(parametersetname = 'Avast',
             Mandatory = $false)]
         [Switch]$AvastUninstall,
+
+        [Parameter(parametersetname = 'Avast',
+            Mandatory = $false)]
+        [Switch]$AvastCMDUninstall,
 
         [Parameter(parametersetname = 'Norton',
             Mandatory = $false)]
@@ -770,23 +772,58 @@ function Get-AVInfo {
                 }
             } # if ParameterSet 'Symantec'
             'Avast' {
-                # Check if avastclear.exe is already present on the machine
-                if (-not (Test-Path "C:\Windows\Temp\avastclear.exe")) {
-                    $Answer = Read-Host "Would you like to download and run the Avast Clear Tool? (Y/N)"
-                    if ($Answer -eq 'N') {
+                if ($AvastUninstall) {
+                    # Check if avastclear.exe is already present on the machine
+                    if (-not (Test-Path "C:\Windows\Temp\avastclear.exe")) {
+                        $Answer = Read-Host "Would you like to download and run the Avast Clear Tool? (Y/N)"
+                        if ($Answer -eq 'N') {
+                            Write-Host "Exiting script."
+                            return
+                        } # if 'N'     
+                        elseif ($Answer -eq 'Y') {   
+                            Write-Verbose 'Downloading the Avast Removal tool and saving to "C:\Windows\Temp\avastclear.exe".'
+                            # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
+                            (New-Object Net.WebClient).DownloadFile("https://files.avast.com/iavs9x/avastclear.exe", "C:\Windows\Temp\avastclear.exe")
+                            Write-Verbose "Download complete. Running avastclear.exe."
+                        } # if 'Y'
+                    } # if !Test-Path                   
+                    Start-Process "C:\Windows\Temp\avastclear.exe"   
+                } # if $AvastUninstall
+                elseif ($AvastCMDUninstall) {        
+                    # If the Avast Clear uninstaller doesn’t work, or if you want to uninstall silently, you can uninstall Avast using the Command Prompt:
+                    # https://www.avast.com/en-us/uninstall-utility#pc:~:text=Uninstall%20Avast%20using%20Command%20Prompt 
+
+                    $Answer = Read-Host "This method will silently uninstall Avast without using the Avast Clear tool, but it requires modifying the Stats.ini file in the Avast setup folder to enable silent uninstalls. Do you want to proceed with this method? (Y/N)"
+                    if ($Answer -ne 'Y') {
                         Write-Host "Exiting script."
                         return
-                    } # if 'N'     
-                    elseif ($Answer -eq 'Y') {   
-                        Write-Verbose 'Downloading the Avast Removal tool and saving to "C:\Windows\Temp\avastclear.exe".'
-                        # To account for Windows 7 machines, I don't use the Invoke-WebRequest cmdlet below
-                        (New-Object Net.WebClient).DownloadFile("https://files.avast.com/iavs9x/avastclear.exe", "C:\Windows\Temp\avastclear.exe")
-                        Write-Verbose "Download complete. Running avastclear.exe."
-                    } # if 'Y'
-                } # if !Test-Path                   
-                Start-Process "C:\Windows\Temp\avastclear.exe"
-                # If the Avast Clear uninstaller doesn’t work, you can uninstall Avast using the Command Prompt:
-                # https://www.avast.com/en-us/uninstall-utility#pc:~:text=Uninstall%20Avast%20using%20Command%20Prompt            
+                    }
+
+                    $path = 'C:\Program Files\Avast Software\Avast\setup\Stats.ini'
+                    if (-not (Test-Path -LiteralPath $path)) {
+                        Write-Warning "Stats.ini was not found at '$path'. Cannot continue with Avast command-line uninstall."
+                        return
+                    }
+
+                    $content = Get-Content -Raw -LiteralPath $path
+                    if ($content -notmatch '(?m)^\s*SilentUninstallEnabled=1\s*$') {
+                        Write-Host -ForegroundColor Green "Enabling silent uninstall in Avast's Stats.ini file."
+                        $content = $content -replace '(?ms)(^\[Common\]\r?\n)(\s*FirstInstall=0)', "`$1SilentUninstallEnabled=1`r`n`$2"
+                        Set-Content -LiteralPath $path -Value $content -Encoding ASCII
+                    }
+
+                    $updatedContent = Get-Content -Raw -LiteralPath $path
+                    if ($updatedContent -notmatch '(?ms)^\[Common\]\r?\n(?:.*\r?\n)*?^\s*SilentUninstallEnabled=1\s*$\r?\n^\s*FirstInstall=0\s*$') {
+                        Write-Warning "Failed to verify 'SilentUninstallEnabled=1' under [Common] before FirstInstall=0 in '$path'. Aborting uninstall."
+                        return
+                    }
+
+                    Write-Host -ForegroundColor Green "Silent uninstall is enabled. Running the uninstaller now. Please wait.."
+                    $instupProcess = Start-Process -FilePath "C:\Program Files\Avast Software\Avast\setup\instup.exe" -ArgumentList '/instop:uninstall', '/silent' -PassThru
+                    Write-Host -ForegroundColor Green "Monitoring instup.exe (PID: $($instupProcess.Id)) until it exits."
+                    $instupProcess.WaitForExit()
+                    Write-Host -ForegroundColor Green "instup.exe has exited with code $($instupProcess.ExitCode). Avast uninstall complete. Reboot the machine.`nExiting script."
+                } # if $AvastCMDUninstall
             } # if ParameterSet 'Avast'
             'Norton' {
                 $Answer = Read-Host "Would you like to download and run the Norton Remove and Reinstall tool? (Y/N)"
@@ -1029,9 +1066,26 @@ function Get-AVInfo {
                         Write-Host -ForegroundColor Green "Webroot installer already present at C:\wsasmi.msi."
                     }
                     Write-Host -ForegroundColor Green "Proceeding with install/uninstall"
-                    Start-Process msiexec.exe '/i "C:\wsasmi.msi" /quiet /norestart' -Wait
+                    $installProcess = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i "C:\wsasmi.msi" /quiet /norestart' -Wait -PassThru
+                    if ($installProcess.ExitCode -eq 0) {
+                        Write-Host -ForegroundColor Green "Install completed successfully. Proceeding with uninstall."
+                    }
+                    else {
+                        Write-Host -ForegroundColor Red "Install failed with exit code: $($installProcess.ExitCode)"
+                        Write-Host -ForegroundColor Red "Skipping the uninstall step. Exiting script."
+                        # deleting the installer
+                        Remove-Item 'C:\wsasmi.msi'
+                        break
+                    }
+                    
                     Write-Host -ForegroundColor Green "Uninstalling Webroot"
-                    Start-Process msiexec.exe '/x "C:\wsasmi.msi" /quiet /norestart' -Wait
+                    $uninstallProcess = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/x "C:\wsasmi.msi" /quiet /norestart' -Wait -PassThru
+                    if ($uninstallProcess.ExitCode -eq 0) {
+                        Write-Host -ForegroundColor Green "Uninstall completed successfully."
+                    }
+                    else {
+                        Write-Host -ForegroundColor Red "Uninstall failed with exit code: $($uninstallProcess.ExitCode)"
+                    }
                     # deleting the installer
                     Remove-Item 'C:\wsasmi.msi'
                     Write-Host -ForegroundColor Green "Uninstall complete. Please wait a minute or two and then check for success including for the now disabled WRSVC service, then manually reboot.`
@@ -1233,7 +1287,8 @@ function Get-AVInfo {
                 $Services = Get-Service -DisplayName *vipre*, *SBAMSvc*, *defend*, *trend*, *sophos*, *eset*, *symantec*, *webroot*, *cylance*, *mcafee*, *avg*, *datto*, `
                     *santivirus*, *segurazo*, *avira*, *norton*, *malware*, *kaspersky*, *sentinel*, *avast*, *spyware*, *spybot*, *WRCoreService*, *WRSkyClient*, *WRSVC*, `
                     *WRSMSVC*, *CrowdStrike*, *Rapport*, *Reason*, '*f-secure*', '*Cisco Secure Endpoint*', '*HP Sure*', 'HP Security Update Service', '*SAS Core*', "360 Total Security" `
-                    -Exclude *firewall*, '*AMD Crash*', '*sensor reset*', '*LDK License Manager', '*Sophos Connect*', '*Avast SecureLine VPN*', '*browser*', '*%1!s! Update Service*' -ErrorAction SilentlyContinue
+                    -Exclude *firewall*, '*AMD Crash*', '*sensor reset*', '*LDK License Manager', '*Sophos Connect*', '*Avast SecureLine VPN*', '*browser*', '*%1!s! Update Service*', `
+                    DattoBackupAgentService -ErrorAction SilentlyContinue
                 # , '*Take Control Agent*', '*N-able Remote*'
         
                 Write-Verbose -Message "Retrieving AVs registered with the Windows Security Center (by querying WMI)"
@@ -1475,15 +1530,17 @@ function Get-AVInfo {
                     # checking for disabled Windows Defender services
                     # converting from ordered dictionary to array for enumeration purposes
                     $Array2 = @($WDProps.Values)
-                    foreach ($A in $Array2) {
-                        if ($A -ne $true) { $WD_Services_Disabled = $true; break }
-                    } # foreach
-                    if (!$RTP_Key -and $WD_Services_Disabled) {
-                        $RTP_Message = "The 'Real-Time Protection' Registry key is not present on this machine. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, try setting the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled' and re-run this script." 
-                    } # if !$RTP_Key
-                    elseif (($RTP_Key).DisableRealtimeMonitoring -eq 1) { 
-                        $RTP_Message = "The 'DisableRealtimeMonitoring' reg key is set to 1. One or more of the Windows Defender engines listed above are not enabled. Assuming no third-party AVs are running, try setting the 'Turn off real-time protection' setting in Local Group Policy to 'Disabled'." 
-                    } # elseif $RTP_Key
+                    if ($Array2 -contains $false) {
+                        $WDComponentsMessage = "One or more Windows Defender components listed above are disabled."
+                    }
+                    $RTP_Messages = @()
+                    if ($RTP_Key.DisableRealtimeMonitoring -eq 1) {
+                        $RTP_Messages += "The Defender policy value 'DisableRealtimeMonitoring' is set to 1."
+                    }
+                    if ($WDStatus.RealTimeProtectionEnabled -eq $false) {
+                        $RTP_Messages += "Get-MpComputerStatus reports that real-time protection is disabled. Check the effective Defender policy and configuration."
+                    }
+                    $RTP_Message = $RTP_Messages -join "`n"
 
                     if ($Server) {
                         # checking if the Windows-Defender feature is installed on the server
@@ -1768,7 +1825,12 @@ function Get-AVInfo {
                     else {
                         Write-Host -ForegroundColor Green "Windows Defender base engines:"
                         $WDObjEnabled | Format-List
-                        Write-Host -ForegroundColor Cyan $RTP_Message
+                        if ($WDComponentsMessage) {
+                            Write-Host -ForegroundColor Yellow $WDComponentsMessage
+                        }
+                        if ($RTP_Message) {
+                            Write-Host -ForegroundColor Cyan $RTP_Message
+                        }
                         if ($WDSignaturesDetailed) {
                             Write-Host -ForegroundColor Green "Windows Defender Signatures:"
                             $WDObj_detailed | Format-List
